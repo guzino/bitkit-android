@@ -334,13 +334,7 @@ class WalletViewModel @Inject constructor(
     fun stop() {
         if (!walletExists) return
 
-        viewModelScope.launch(bgDispatcher) {
-            lightningRepo.stop()
-                .onFailure {
-                    Logger.error("Node stop error", it)
-                    ToastEventBus.send(it)
-                }
-        }
+        lightningRepo.stopDebounced()
     }
 
     fun refreshState() = viewModelScope.launch {
