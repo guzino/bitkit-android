@@ -271,9 +271,11 @@ fun ContentView(
                     blocktankViewModel.refreshOrders()
                     appViewModel.refreshPublicPaykitEndpoints()
                     appViewModel.refreshPrivatePaykitEndpoints()
+                    appViewModel.startPaykitPaymentRequestPolling()
                 }
 
                 Lifecycle.Event.ON_STOP -> {
+                    appViewModel.stopPaykitPaymentRequestPolling()
                     val keptAliveByService = notificationsGranted &&
                         keepActiveInBackground &&
                         appViewModel.isForegroundServiceRunning()
@@ -289,6 +291,7 @@ fun ContentView(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            appViewModel.stopPaykitPaymentRequestPolling()
         }
     }
 
@@ -1200,8 +1203,8 @@ private fun NavGraphBuilder.contacts(
             ContactDetailScreen(
                 viewModel = viewModel,
                 onBackClick = { navController.popBackStack() },
-                onPayContact = { paymentRequest, publicKey ->
-                    appViewModel.openContactPayment(paymentRequest, publicKey)
+                onPayContact = { paymentRequest, publicKey, privatePaymentContext ->
+                    appViewModel.openContactPayment(paymentRequest, publicKey, privatePaymentContext)
                 },
                 onActivityClick = { navController.navigateTo(Routes.ContactActivity(it)) },
                 showDeleteAction = route.showDeleteAction,
