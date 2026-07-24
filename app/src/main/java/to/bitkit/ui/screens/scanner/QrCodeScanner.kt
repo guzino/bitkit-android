@@ -13,7 +13,6 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicBoolean
 
 internal class BarcodeModelUnavailableException(cause: Throwable? = null) :
     Exception("The QR scanner model is unavailable", cause)
@@ -25,33 +24,52 @@ internal class BarcodeModelInstaller(
     private val onError: (Throwable) -> Unit,
     private val callbackExecutor: Executor = Executor { it.run() },
 ) : AutoCloseable {
-    private val finished = AtomicBoolean()
-    private val listenerLock = Any()
+    private val stateLock = Any()
+    private var closed = false
+    private var ready = false
+    private var attemptActive = false
+    private var attemptId = 0L
     private var installStatusListener: InstallStatusListener? = null
 
     fun start() {
+        startAttempt()
+    }
+
+    fun retry() {
+        startAttempt()
+    }
+
+    private fun startAttempt() {
+        val currentAttemptId = synchronized(stateLock) {
+            if (closed || ready || attemptActive) {
+                return
+            }
+            attemptActive = true
+            ++attemptId
+        }
+
         moduleInstallClient.areModulesAvailable(scanner)
             .addOnSuccessListener(callbackExecutor) { availability ->
-                if (finished.get()) {
+                if (!isCurrentAttempt(currentAttemptId)) {
                     return@addOnSuccessListener
                 }
 
                 if (availability.areModulesAvailable()) {
-                    finishReady()
+                    finishReady(currentAttemptId)
                 } else {
-                    install()
+                    install(currentAttemptId)
                 }
             }
-            .addOnFailureListener(callbackExecutor, ::finishError)
+            .addOnFailureListener(callbackExecutor) { finishError(currentAttemptId, it) }
     }
 
-    private fun install() {
+    private fun install(currentAttemptId: Long) {
         val listener = InstallStatusListener { update ->
             when (update.installState) {
-                ModuleInstallStatusUpdate.InstallState.STATE_COMPLETED -> finishReady()
+                ModuleInstallStatusUpdate.InstallState.STATE_COMPLETED -> finishReady(currentAttemptId)
                 ModuleInstallStatusUpdate.InstallState.STATE_CANCELED,
                 ModuleInstallStatusUpdate.InstallState.STATE_FAILED,
-                -> finishError(BarcodeModelUnavailableException())
+                -> finishError(currentAttemptId, BarcodeModelUnavailableException())
             }
         }
 
@@ -60,8 +78,8 @@ internal class BarcodeModelInstaller(
             .setListener(listener, callbackExecutor)
             .build()
 
-        val installTask = synchronized(listenerLock) {
-            if (finished.get()) {
+        val installTask = synchronized(stateLock) {
+            if (!isCurrentAttemptLocked(currentAttemptId)) {
                 return
             }
             installStatusListener = listener
@@ -71,43 +89,61 @@ internal class BarcodeModelInstaller(
         installTask
             .addOnSuccessListener(callbackExecutor) { response ->
                 if (response.areModulesAlreadyInstalled()) {
-                    finishReady()
+                    finishReady(currentAttemptId)
                 }
             }
-            .addOnFailureListener(callbackExecutor, ::finishError)
+            .addOnFailureListener(callbackExecutor) { finishError(currentAttemptId, it) }
     }
 
-    private fun finishReady() {
-        if (finished.compareAndSet(false, true)) {
-            unregisterListener()
-            onReady()
-        }
-    }
-
-    private fun finishError(error: Throwable) {
-        if (finished.compareAndSet(false, true)) {
-            unregisterListener()
-            onError(
-                if (error is BarcodeModelUnavailableException) {
-                    error
-                } else {
-                    BarcodeModelUnavailableException(error)
-                }
-            )
-        }
-    }
-
-    private fun unregisterListener() {
-        val listener = synchronized(listenerLock) {
+    private fun finishReady(currentAttemptId: Long) {
+        val listener = synchronized(stateLock) {
+            if (!isCurrentAttemptLocked(currentAttemptId)) {
+                return
+            }
+            ready = true
+            attemptActive = false
             installStatusListener.also { installStatusListener = null }
         }
         listener?.let(moduleInstallClient::unregisterListener)
+        onReady()
     }
 
-    override fun close() {
-        if (finished.compareAndSet(false, true)) {
-            unregisterListener()
+    private fun finishError(currentAttemptId: Long, error: Throwable) {
+        val listener = synchronized(stateLock) {
+            if (!isCurrentAttemptLocked(currentAttemptId)) {
+                return
+            }
+            attemptActive = false
+            installStatusListener.also { installStatusListener = null }
         }
+        listener?.let(moduleInstallClient::unregisterListener)
+        onError(
+            if (error is BarcodeModelUnavailableException) {
+                error
+            } else {
+                BarcodeModelUnavailableException(error)
+            }
+        )
+    }
+
+    private fun isCurrentAttempt(currentAttemptId: Long) = synchronized(stateLock) {
+        isCurrentAttemptLocked(currentAttemptId)
+    }
+
+    private fun isCurrentAttemptLocked(currentAttemptId: Long) =
+        !closed && !ready && attemptActive && attemptId == currentAttemptId
+
+    override fun close() {
+        val listener = synchronized(stateLock) {
+            if (closed) {
+                return
+            }
+            closed = true
+            attemptActive = false
+            ++attemptId
+            installStatusListener.also { installStatusListener = null }
+        }
+        listener?.let(moduleInstallClient::unregisterListener)
     }
 }
 

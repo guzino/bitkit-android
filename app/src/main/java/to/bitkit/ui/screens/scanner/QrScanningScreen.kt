@@ -118,14 +118,19 @@ fun QrScanningScreen(
     val context = LocalContext.current
     val previewView = remember { PreviewView(context) }
     val preview = remember { Preview.Builder().build() }
+    var isQrModelUnavailable by remember { mutableStateOf(false) }
     val analyzer = remember {
         QrCodeAnalyzer(context) { result ->
             if (result.isSuccess) {
+                isQrModelUnavailable = false
                 val qrCode = result.getOrThrow()
                 Logger.debug("Scanned QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
                 setScanResult(qrCode)
             } else {
                 val error = requireNotNull(result.exceptionOrNull())
+                if (error is BarcodeModelUnavailableException) {
+                    isQrModelUnavailable = true
+                }
                 Logger.error("Failed to scan QR code", error)
                 app.toastQrScanError(context, error)
             }
@@ -227,6 +232,11 @@ fun QrScanningScreen(
                     },
                     onPasteFromClipboard = handlePaste(context, app, setScanResult),
                     onSubmitDebug = setScanResult,
+                    isQrModelUnavailable = isQrModelUnavailable,
+                    onRetryQrModel = {
+                        isQrModelUnavailable = false
+                        analyzer.retryModelInstallation()
+                    },
                 )
             }
         )
@@ -258,6 +268,8 @@ private fun Content(
     onPasteFromClipboard: () -> Unit,
     modifier: Modifier = Modifier,
     onSubmitDebug: (String?) -> Unit,
+    isQrModelUnavailable: Boolean,
+    onRetryQrModel: () -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -306,6 +318,18 @@ private fun Content(
                     painter = painterResource(R.drawable.ic_flashlight),
                     contentDescription = null,
                     tint = Colors.White
+                )
+            }
+
+            if (isQrModelUnavailable) {
+                PrimaryButton(
+                    text = stringResource(R.string.common__retry),
+                    onClick = onRetryQrModel,
+                    fullWidth = false,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                        .testTag("RetryQrScanner"),
                 )
             }
         }

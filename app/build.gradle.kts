@@ -160,6 +160,12 @@ val bitkitAndroidTestAnnotationName = requestedAndroidTestAnnotation
 val bitkitAndroidTestAnnotation = bitkitAndroidTestAnnotationName?.let {
     "$androidTestAnnotationPackage.$it"
 }
+val packageThirdPartyLicenses by tasks.registering(Sync::class) {
+    from("src/main/cpp/third_party/androidx/LICENSE") {
+        into("third_party/androidx")
+    }
+    into(layout.buildDirectory.dir("generated/third-party-licenses"))
+}
 
 android {
     namespace = "to.bitkit"
@@ -319,6 +325,9 @@ android {
             isIncludeAndroidResources = true // robolectric
         }
     }
+    sourceSets.getByName("main").assets.srcDir(
+        packageThirdPartyLicenses.map { it.destinationDir }
+    )
     lint {
         abortOnError = false
     }
@@ -494,6 +503,10 @@ room {
 }
 
 // region Tasks
+
+tasks.named("preBuild").configure {
+    dependsOn(packageThirdPartyLicenses)
+}
 
 tasks.withType<Detekt>().configureEach {
     ignoreFailures = true

@@ -38,6 +38,11 @@ class QrCodeAnalyzer(
         lastScanTime = 0
     }
 
+    fun retryModelInstallation() {
+        isScannerReady = false
+        modelInstaller.retry()
+    }
+
     override fun analyze(image: ImageProxy) {
         if (!isScannerReady) {
             image.close()

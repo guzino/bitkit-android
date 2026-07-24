@@ -9,8 +9,10 @@ Graphics Path `1.1.0` with 16 KB `LOAD` and `GNU_RELRO` alignment.
   `1c44f0be720ff16cd30357ad2375239bf97a1da8`.
 
 The source files retain their Android Open Source Project Apache 2.0 license
-headers. `Android.mk` supplies the page-size linker configuration while keeping
-the release source unchanged.
+headers, with the complete license stored in `LICENSE` alongside the source.
+The Android build also includes that file in application assets at
+`third_party/androidx/LICENSE`. `Android.mk` supplies the page-size linker
+configuration while keeping the release source unchanged.
 
 The CameraX image-processing target uses the required source subset from libyuv
 commit `ddc6764d1392fb2e3ff5752b12c73786a989473e`. The portable C kernels provide

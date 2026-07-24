@@ -110,6 +110,74 @@ class BarcodeModelInstallerTest {
     }
 
     @Test
+    fun `retry reaches ready after a transient installation failure`() {
+        whenever(moduleInstallClient.areModulesAvailable(scanner)).thenReturn(
+            Tasks.forResult(
+                ModuleAvailabilityResponse(
+                    false,
+                    ModuleAvailabilityResponse.AvailabilityStatus.STATUS_READY_TO_DOWNLOAD,
+                )
+            ),
+            Tasks.forResult(
+                ModuleAvailabilityResponse(
+                    true,
+                    ModuleAvailabilityResponse.AvailabilityStatus.STATUS_ALREADY_AVAILABLE,
+                )
+            ),
+        )
+        whenever(moduleInstallClient.installModules(org.mockito.kotlin.any())).thenReturn(
+            Tasks.forException(IllegalStateException("offline"))
+        )
+        var readyCalls = 0
+        var errorCalls = 0
+        val installer = BarcodeModelInstaller(
+            scanner = scanner,
+            moduleInstallClient = moduleInstallClient,
+            onReady = { readyCalls++ },
+            onError = { errorCalls++ },
+        )
+
+        installer.start()
+        assertEquals(1, errorCalls)
+        assertEquals(0, readyCalls)
+
+        installer.retry()
+
+        assertEquals(1, errorCalls)
+        assertEquals(1, readyCalls)
+        verify(moduleInstallClient, times(2)).areModulesAvailable(scanner)
+        verify(moduleInstallClient, times(1)).installModules(org.mockito.kotlin.any())
+    }
+
+    @Test
+    fun `close prevents retry after a model installation error`() {
+        whenever(moduleInstallClient.areModulesAvailable(scanner)).thenReturn(
+            Tasks.forResult(
+                ModuleAvailabilityResponse(
+                    false,
+                    ModuleAvailabilityResponse.AvailabilityStatus.STATUS_READY_TO_DOWNLOAD,
+                )
+            )
+        )
+        whenever(moduleInstallClient.installModules(org.mockito.kotlin.any())).thenReturn(
+            Tasks.forException(IllegalStateException("offline"))
+        )
+        val installer = BarcodeModelInstaller(
+            scanner = scanner,
+            moduleInstallClient = moduleInstallClient,
+            onReady = {},
+            onError = {},
+        )
+
+        installer.start()
+        installer.close()
+        installer.retry()
+
+        verify(moduleInstallClient, times(1)).areModulesAvailable(scanner)
+        verify(moduleInstallClient, times(1)).installModules(org.mockito.kotlin.any())
+    }
+
+    @Test
     fun `does not start module installation after close`() {
         val availability = TaskCompletionSource<ModuleAvailabilityResponse>()
         whenever(moduleInstallClient.areModulesAvailable(scanner)).thenReturn(availability.task)

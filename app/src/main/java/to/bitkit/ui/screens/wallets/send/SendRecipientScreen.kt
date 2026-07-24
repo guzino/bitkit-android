@@ -104,6 +104,7 @@ fun SendRecipientScreen(
     // Camera state
     var isFlashlightOn by remember { mutableStateOf(false) }
     var isCameraInitialized by remember { mutableStateOf(false) }
+    var isQrModelUnavailable by remember { mutableStateOf(false) }
     val previewView = remember {
         PreviewView(context).apply {
             setLayerType(LAYER_TYPE_HARDWARE, null)
@@ -136,11 +137,15 @@ fun SendRecipientScreen(
     val analyzer = remember(onEvent) {
         QrCodeAnalyzer(context) { result ->
             if (result.isSuccess) {
+                isQrModelUnavailable = false
                 val qrCode = result.getOrThrow()
                 Logger.debug("Scanned QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
                 onEvent(SendEvent.AddressContinue(qrCode))
             } else {
                 val error = requireNotNull(result.exceptionOrNull())
+                if (error is BarcodeModelUnavailableException) {
+                    isQrModelUnavailable = true
+                }
                 Logger.error("Scan failed", error, context = TAG)
                 app.toastQrScanError(context, error)
             }
@@ -208,7 +213,12 @@ fun SendRecipientScreen(
         onEvent(SendEvent.AddressContinue(qrCode))
     }
 
-    val handleGalleryError: (Throwable) -> Unit = { app.toastQrScanError(context, it) }
+    val handleGalleryError: (Throwable) -> Unit = {
+        if (it is BarcodeModelUnavailableException) {
+            isQrModelUnavailable = true
+        }
+        app.toastQrScanError(context, it)
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -265,6 +275,11 @@ fun SendRecipientScreen(
         onClickManual = { onEvent(SendEvent.EnterManually) },
         cameraPermissionGranted = cameraPermissionState.status.isGranted,
         onRequestPermission = { context.startActivityAppSettings() },
+        isQrModelUnavailable = isQrModelUnavailable,
+        onRetryQrModel = {
+            isQrModelUnavailable = false
+            analyzer.retryModelInstallation()
+        },
         showContactOption = true,
         modifier = modifier,
     )
@@ -280,6 +295,8 @@ private fun SendRecipientContent(
     onClickManual: () -> Unit,
     cameraPermissionGranted: Boolean,
     onRequestPermission: () -> Unit,
+    isQrModelUnavailable: Boolean,
+    onRetryQrModel: () -> Unit,
     modifier: Modifier = Modifier,
     showContactOption: Boolean = false,
 ) {
@@ -306,6 +323,8 @@ private fun SendRecipientContent(
                         previewView = previewView,
                         onClickFlashlight = onClickFlashlight,
                         onClickGallery = onClickGallery,
+                        isQrModelUnavailable = isQrModelUnavailable,
+                        onRetryQrModel = onRetryQrModel,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -355,6 +374,8 @@ private fun CameraPreviewWithControls(
     previewView: PreviewView,
     onClickFlashlight: () -> Unit,
     onClickGallery: () -> Unit,
+    isQrModelUnavailable: Boolean,
+    onRetryQrModel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -408,6 +429,18 @@ private fun CameraPreviewWithControls(
                 painter = painterResource(R.drawable.ic_flashlight),
                 contentDescription = null,
                 tint = Colors.White
+            )
+        }
+
+        if (isQrModelUnavailable) {
+            PrimaryButton(
+                text = stringResource(R.string.common__retry),
+                onClick = onRetryQrModel,
+                fullWidth = false,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+                    .testTag("RetryQrScanner"),
             )
         }
     }
@@ -506,6 +539,8 @@ private fun Preview() {
                 onClickManual = {},
                 cameraPermissionGranted = false,
                 onRequestPermission = {},
+                isQrModelUnavailable = false,
+                onRetryQrModel = {},
                 modifier = Modifier.sheetHeight(),
             )
         }

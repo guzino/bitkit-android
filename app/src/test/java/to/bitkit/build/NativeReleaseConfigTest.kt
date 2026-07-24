@@ -25,6 +25,26 @@ class NativeReleaseConfigTest {
     }
 
     @Test
+    fun `androidx license is packaged with application assets`() {
+        val buildFile = repoRoot.resolve("app/build.gradle.kts").readText()
+        val licenseFile = repoRoot.resolve("app/src/main/cpp/third_party/androidx/LICENSE")
+
+        assertTrue(licenseFile.exists(), "The vendored AndroidX source must include its Apache 2.0 license.")
+        val licenseText = licenseFile.readText()
+        assertTrue(
+            licenseText.contains("Apache License") &&
+                licenseText.contains("Version 2.0, January 2004"),
+            "The vendored AndroidX license must contain the complete Apache 2.0 license text.",
+        )
+        assertTrue(
+            buildFile.contains("packageThirdPartyLicenses") &&
+                buildFile.contains("""into("third_party/androidx")""") &&
+                buildFile.contains("dependsOn(packageThirdPartyLicenses)"),
+            "Android builds must package the vendored AndroidX license as an application asset.",
+        )
+    }
+
+    @Test
     fun `release recipe verifies native debug symbols archive`() {
         val justfile = repoRoot.resolve("Justfile").readText()
 
