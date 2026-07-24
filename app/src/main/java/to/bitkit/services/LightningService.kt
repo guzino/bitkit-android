@@ -91,6 +91,12 @@ class LightningService @Inject constructor(
         private const val TAG = "LightningService"
         private const val NODE_ID_PREVIEW_LEN = 20
 
+        /** LDK's default Electrum batch size for additional-wallet full scans. */
+        private const val ADDITIONAL_WALLET_FULL_SCAN_BATCH_SIZE = 5u
+
+        /** LDK's default Electrum stop gap for additional-wallet full scans. */
+        private const val ADDITIONAL_WALLET_FULL_SCAN_STOP_GAP = 20u
+
         private const val SCORING_BASE_PENALTY_MSAT = 40_000uL
         private const val SCORING_LIQUIDITY_PENALTY_MULTIPLIER_MSAT = 10_000uL
         private const val SCORING_LIQUIDITY_PENALTY_AMOUNT_MULTIPLIER_MSAT = 10_000uL
@@ -275,6 +281,8 @@ class LightningService @Inject constructor(
                     feeRateCacheUpdateIntervalSecs = Env.walletSyncIntervalSecs,
                 ),
                 connectionTimeoutSecs = Env.walletSyncTimeoutSecs,
+                additionalWalletFullScanBatchSize = ADDITIONAL_WALLET_FULL_SCAN_BATCH_SIZE,
+                additionalWalletFullScanStopGap = ADDITIONAL_WALLET_FULL_SCAN_STOP_GAP,
             ),
         )
     }

@@ -2,20 +2,25 @@
 set -eu
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
-repo_root=$(cd "$script_dir/.." && pwd)
+default_repo_root=$(cd "$script_dir/.." && pwd)
+repo_root=${NATIVE_SYMBOLS_REPO_ROOT:-$default_repo_root}
 cd "$repo_root"
 
 variant="mainnetRelease"
-build_number=$(
-    awk -F= '
-        /^[[:space:]]*versionCode[[:space:]]*=/ {
-            value = $2
-            gsub(/[[:space:]]/, "", value)
-            print value
-            exit
-        }
-    ' app/build.gradle.kts
-)
+if [ -n "${NATIVE_SYMBOLS_BUILD_NUMBER:-}" ]; then
+    build_number=$NATIVE_SYMBOLS_BUILD_NUMBER
+else
+    build_number=$(
+        awk -F= '
+            /^[[:space:]]*versionCode[[:space:]]*=/ {
+                value = $2
+                gsub(/[[:space:]]/, "", value)
+                print value
+                exit
+            }
+        ' app/build.gradle.kts
+    )
+fi
 case "$build_number" in
     ''|*[!0-9]*)
         echo "Unable to read numeric versionCode from app/build.gradle.kts." >&2
@@ -23,24 +28,21 @@ case "$build_number" in
         ;;
 esac
 
-output="app/build/outputs/native-debug-symbols/$variant/native-debug-symbols-$build_number.zip"
+artifact_root=${NATIVE_SYMBOLS_ARTIFACT_ROOT:-app/build/outputs}
+output="$artifact_root/native-debug-symbols/$variant/native-debug-symbols-$build_number.zip"
 output_dir=$(dirname "$output")
-dependency_symbols_dir="app/build/intermediates/native-debug-symbol-artifacts"
-required_libs="libbitkitcore.so libldk_node.so libvss_rust_client_ffi.so"
+dependency_symbols_dir=${NATIVE_SYMBOLS_DEPENDENCY_DIR:-app/build/intermediates/native-debug-symbol-artifacts}
+required_libs="libbitkitcore.so libldk_node.so libpaykit.so libvss_rust_client_ffi.so"
 archive_symbol_suffixes=".dbg .sym"
 
-tmp_dirs=""
+tmp_root=$(mktemp -d)
 cleanup() {
-    for dir in $tmp_dirs; do
-        rm -rf "$dir"
-    done
+    rm -rf "$tmp_root"
 }
 trap cleanup EXIT
 
 make_tmp_dir() {
-    dir=$(mktemp -d)
-    tmp_dirs="$tmp_dirs $dir"
-    echo "$dir"
+    mktemp -d "$tmp_root/native-symbols.XXXXXX"
 }
 
 local_properties_value() {
@@ -93,10 +95,32 @@ find_readelf() {
     exit 1
 }
 
-readelf_bin=$(find_readelf)
+readelf_bin=${NATIVE_SYMBOLS_READELF_BIN:-$(find_readelf)}
 
 has_dwarf_debug_metadata() {
     "$readelf_bin" -S "$1" | grep -Eq '\.debug_info'
+}
+
+build_id() {
+    notes=$("$readelf_bin" -n "$1") || {
+        echo "Unable to inspect native library notes: '$1'." >&2
+        return 1
+    }
+
+    printf '%s\n' "$notes" | awk '
+        /NT_GNU_BUILD_ID/ { found_gnu_build_id = 1; next }
+        found_gnu_build_id && /Build ID:/ { print $3; exit }
+    '
+}
+
+require_build_id() {
+    id=$(build_id "$1")
+    if [ -z "$id" ]; then
+        echo "Native library has no NT_GNU_BUILD_ID: '$1'." >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$id"
 }
 
 validate_symbol_tree() {
@@ -116,7 +140,68 @@ validate_symbol_tree() {
                 echo "Publish or consume native dependencies with full DWARF debug metadata before releasing." >&2
                 exit 1
             fi
+
+            require_build_id "$lib" >/dev/null
         done
+    done
+}
+
+require_packaged_artifacts() {
+    aab_artifact="$artifact_root/bundle/mainnetRelease/bitkit-mainnet-release-$build_number.aab"
+    universal_apk_artifact="$artifact_root/apk/mainnet/release/bitkit-mainnet-release-$build_number-universal.apk"
+
+    for artifact in "$aab_artifact" "$universal_apk_artifact"; do
+        if [ ! -f "$artifact" ]; then
+            echo "Required build-numbered app artifact is unavailable for native build-ID validation: '$artifact'." >&2
+            exit 1
+        fi
+    done
+}
+
+extract_packaged_lib() {
+    archive="$1"
+    output_root="$2"
+    abi="$3"
+    lib_name="$4"
+
+    aab_entry="base/lib/$abi/$lib_name"
+    apk_entry="lib/$abi/$lib_name"
+    if unzip -Z -1 "$archive" "$aab_entry" >/dev/null 2>&1; then
+        entry="$aab_entry"
+    elif unzip -Z -1 "$archive" "$apk_entry" >/dev/null 2>&1; then
+        entry="$apk_entry"
+    else
+        echo "Packaged app artifact is missing '$abi/$lib_name': '$archive'." >&2
+        exit 1
+    fi
+
+    mkdir -p "$output_root/$abi"
+    unzip -p "$archive" "$entry" > "$output_root/$abi/$lib_name"
+}
+
+validate_packaged_build_id_parity() {
+    symbol_root="$1"
+    require_packaged_artifacts
+
+    for packaged_artifact in "$aab_artifact" "$universal_apk_artifact"; do
+        packaged_root=$(make_tmp_dir)
+
+        for abi in arm64-v8a armeabi-v7a; do
+            for lib_name in $required_libs; do
+                extract_packaged_lib "$packaged_artifact" "$packaged_root" "$abi" "$lib_name"
+
+                packaged_lib="$packaged_root/$abi/$lib_name"
+                symbol_lib="$symbol_root/$abi/$lib_name"
+                packaged_build_id=$(require_build_id "$packaged_lib")
+                symbol_build_id=$(require_build_id "$symbol_lib")
+                if [ "$packaged_build_id" != "$symbol_build_id" ]; then
+                    echo "Native build ID mismatch for '$abi/$lib_name' in '$packaged_artifact': packaged=$packaged_build_id symbols=$symbol_build_id." >&2
+                    exit 1
+                fi
+            done
+        done
+
+        echo "Validated native build-ID parity against '$packaged_artifact'."
     done
 }
 
@@ -205,12 +290,14 @@ validate_output_zip() {
     done
 
     validate_symbol_tree "$tmp_dir"
+    validate_packaged_build_id_parity "$tmp_dir"
 }
 
 create_output_zip_from_tree() {
     root="$1"
 
     validate_symbol_tree "$root"
+    validate_packaged_build_id_parity "$root"
 
     mkdir -p "$output_dir"
     rm -f "$output_dir"/native-debug-symbols*.zip
@@ -225,6 +312,7 @@ create_output_zip_from_tree() {
     ls -lh "$output"
 }
 
+main() {
 if [ -d "$dependency_symbols_dir" ]; then
     tmp_dir=$(make_tmp_dir)
     found_archive=false
@@ -293,3 +381,8 @@ for abi in arm64-v8a armeabi-v7a; do
 done
 
 create_output_zip_from_tree "$tmp_dir"
+}
+
+if [ "${NATIVE_SYMBOLS_FUNCTIONS_ONLY:-false}" != true ]; then
+    main
+fi

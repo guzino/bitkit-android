@@ -65,7 +65,7 @@ jobs:
           printf '%s' "$INTERNAL_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           echo "KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build internal release APK
+      - name: Build internal release APK and AAB
         env:
           GPR_USER: ${{ secrets.GPR_USER || github.actor }}
           GPR_TOKEN: ${{ secrets.GPR_TOKEN || github.token }}
@@ -75,7 +75,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.INTERNAL_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          ./gradlew assembleMainnetRelease --no-daemon --stacktrace
+          ./gradlew assembleMainnetRelease bundleMainnetRelease --no-daemon --stacktrace
           ./gradlew :app:syncNativeDebugSymbolArtifacts --no-daemon --stacktrace
           scripts/create-native-debug-symbols.sh
 
