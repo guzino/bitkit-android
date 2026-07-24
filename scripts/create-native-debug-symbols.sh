@@ -26,7 +26,9 @@ esac
 output="app/build/outputs/native-debug-symbols/$variant/native-debug-symbols-$build_number.zip"
 output_dir=$(dirname "$output")
 dependency_symbols_dir="app/build/intermediates/native-debug-symbol-artifacts"
-required_libs="libbitkitcore.so libldk_node.so libvss_rust_client_ffi.so"
+dependency_required_libs="libbitkitcore.so libldk_node.so libvss_rust_client_ffi.so"
+application_required_libs="libimage_processing_util_jni.so libsurface_util_jni.so libandroidx.graphics.path.so"
+required_libs="$dependency_required_libs $application_required_libs"
 archive_symbol_suffixes=".dbg .sym"
 
 tmp_dirs=""
@@ -146,10 +148,11 @@ extract_archive_lib() {
 copy_archive_symbols() {
     archive="$1"
     tmp_dir="$2"
+    libs_to_copy="$3"
 
     for abi in arm64-v8a armeabi-v7a; do
         mkdir -p "$tmp_dir/$abi"
-        for lib_name in $required_libs; do
+        for lib_name in $libs_to_copy; do
             copied=false
             entry="$abi/$lib_name"
             if copy_archive_entry "$archive" "$tmp_dir" "$abi" "$lib_name" "$entry"; then
@@ -229,13 +232,20 @@ if [ -d "$dependency_symbols_dir" ]; then
     tmp_dir=$(make_tmp_dir)
     found_archive=false
 
+    if [ ! -f "$output" ]; then
+        echo "AGP native debug symbols archive not found at '$output'." >&2
+        echo "Build the release APK before merging application and dependency symbols." >&2
+        exit 1
+    fi
+    copy_archive_symbols "$output" "$tmp_dir" "$application_required_libs"
+
     for archive in "$dependency_symbols_dir"/*.zip; do
         if [ ! -f "$archive" ]; then
             continue
         fi
 
         found_archive=true
-        copy_archive_symbols "$archive" "$tmp_dir"
+        copy_archive_symbols "$archive" "$tmp_dir" "$dependency_required_libs"
     done
 
     if [ "$found_archive" = false ]; then

@@ -52,7 +52,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import to.bitkit.R
@@ -407,30 +406,24 @@ private fun processImageFromGallery(
     uri: Uri,
     onScanSuccess: (String) -> Unit,
     onError: (Throwable) -> Unit,
-): QrImageScanOperation? =
-    try {
-        val image = InputImage.fromFilePath(context, uri)
-        scanQrImage(
-            context = context,
-            image = image,
-            onScanSuccess = { qrCode ->
-                onScanSuccess(qrCode)
-                Logger.info("Found QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
-            },
-            onNoQrCode = {
-                Logger.error("No QR code found in the image")
-                onError(Exception("No QR code found in the image"))
-            },
-            onError = { e ->
-                Logger.error("Failed to scan QR code from gallery", e)
-                onError(e)
-            },
-        )
-    } catch (error: IllegalArgumentException) {
-        Logger.error("Failed to process image from gallery", error, context = TAG)
-        onError(error)
-        null
-    }
+): QrImageScanOperation? = scanQrImageFromUri(
+    context = context,
+    uri = uri,
+    callbacks = QrImageScanCallbacks(
+        onScanSuccess = { qrCode ->
+            onScanSuccess(qrCode)
+            Logger.info("Found QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
+        },
+        onNoQrCode = {
+            Logger.error("No QR code found in the image")
+            onError(Exception("No QR code found in the image"))
+        },
+        onError = { error ->
+            Logger.error("Failed to process QR code from gallery", error, context = TAG)
+            onError(error)
+        },
+    ),
+)
 
 private fun AppViewModel.toastQrScanError(context: Context, error: Throwable) {
     if (error is BarcodeModelUnavailableException) {

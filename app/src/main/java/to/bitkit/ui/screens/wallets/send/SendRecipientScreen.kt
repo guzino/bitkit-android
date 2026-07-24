@@ -50,7 +50,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -70,9 +69,10 @@ import to.bitkit.ui.scaffold.SheetTopBar
 import to.bitkit.ui.screens.scanner.BarcodeModelUnavailableException
 import to.bitkit.ui.screens.scanner.CameraOverlayButtonSize
 import to.bitkit.ui.screens.scanner.QrCodeAnalyzer
+import to.bitkit.ui.screens.scanner.QrImageScanCallbacks
 import to.bitkit.ui.screens.scanner.QrImageScanOperation
 import to.bitkit.ui.screens.scanner.retryQrModelIfUnavailable
-import to.bitkit.ui.screens.scanner.scanQrImage
+import to.bitkit.ui.screens.scanner.scanQrImageFromUri
 import to.bitkit.ui.shared.modifiers.sheetHeight
 import to.bitkit.ui.shared.util.gradientBackground
 import to.bitkit.ui.theme.AppThemeSurface
@@ -500,30 +500,24 @@ private fun processImageFromGallery(
     uri: Uri,
     onScanSuccess: (String) -> Unit,
     onError: (Throwable) -> Unit,
-): QrImageScanOperation? =
-    try {
-        val image = InputImage.fromFilePath(context, uri)
-        scanQrImage(
-            context = context,
-            image = image,
-            onScanSuccess = { qrCode ->
-                onScanSuccess(qrCode)
-                Logger.info("Found gallery QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
-            },
-            onNoQrCode = {
-                Logger.error("No QR code in image", context = TAG)
-                onError(AppError(context.getString(R.string.other__qr_error_text)))
-            },
-            onError = {
-                Logger.error("Gallery scan failed", it, context = TAG)
-                onError(it)
-            },
-        )
-    } catch (e: IllegalArgumentException) {
-        Logger.error("Gallery processing failed", e, context = TAG)
-        onError(e)
-        null
-    }
+): QrImageScanOperation? = scanQrImageFromUri(
+    context = context,
+    uri = uri,
+    callbacks = QrImageScanCallbacks(
+        onScanSuccess = { qrCode ->
+            onScanSuccess(qrCode)
+            Logger.info("Found gallery QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
+        },
+        onNoQrCode = {
+            Logger.error("No QR code in image", context = TAG)
+            onError(AppError(context.getString(R.string.other__qr_error_text)))
+        },
+        onError = {
+            Logger.error("Gallery processing failed", it, context = TAG)
+            onError(it)
+        },
+    ),
+)
 
 private fun AppViewModel?.toastQrScanError(context: Context, error: Throwable) {
     if (error is BarcodeModelUnavailableException) {

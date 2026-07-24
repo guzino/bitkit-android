@@ -1,6 +1,7 @@
 package to.bitkit.ui.screens.scanner
 
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import com.google.android.gms.common.moduleinstall.InstallStatusListener
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -12,6 +13,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import java.io.IOException
 import java.util.concurrent.Executor
 
 internal class BarcodeModelUnavailableException(cause: Throwable? = null) :
@@ -174,6 +176,44 @@ internal fun scanQrImage(
     ),
     callbackExecutor = ContextCompat.getMainExecutor(context),
 ).also { it.start() }
+
+internal typealias QrImageLoader = (Context, Uri) -> InputImage
+
+internal typealias QrImageScanStarter = (
+    Context,
+    InputImage,
+    (String) -> Unit,
+    () -> Unit,
+    (Throwable) -> Unit,
+) -> QrImageScanOperation
+
+internal fun scanQrImageFromUri(
+    context: Context,
+    uri: Uri,
+    callbacks: QrImageScanCallbacks,
+    imageLoader: QrImageLoader = { imageContext, imageUri ->
+        InputImage.fromFilePath(imageContext, imageUri)
+    },
+    scanStarter: QrImageScanStarter = ::scanQrImage,
+): QrImageScanOperation? =
+    try {
+        scanStarter(
+            context,
+            imageLoader(context, uri),
+            callbacks.onScanSuccess,
+            callbacks.onNoQrCode,
+            callbacks.onError,
+        )
+    } catch (error: IOException) {
+        callbacks.onError(error)
+        null
+    } catch (error: IllegalArgumentException) {
+        callbacks.onError(error)
+        null
+    } catch (error: SecurityException) {
+        callbacks.onError(error)
+        null
+    }
 
 internal class QrImageScanCallbacks(
     val onScanSuccess: (String) -> Unit,

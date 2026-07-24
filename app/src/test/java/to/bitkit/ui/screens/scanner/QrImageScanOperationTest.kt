@@ -1,5 +1,7 @@
 package to.bitkit.ui.screens.scanner
 
+import android.content.Context
+import android.net.Uri
 import com.google.android.gms.common.moduleinstall.ModuleAvailabilityResponse
 import com.google.android.gms.common.moduleinstall.ModuleInstallClient
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
@@ -17,14 +19,71 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import java.io.IOException
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class QrImageScanOperationTest {
     private val scanner: BarcodeScanner = mock()
     private val moduleInstallClient: ModuleInstallClient = mock()
     private val image: InputImage = mock()
+
+    @Test
+    fun `uri loading failure reaches error callback without starting scan`() {
+        val context: Context = mock()
+        val uri: Uri = mock()
+        val loadError = IOException("revoked URI")
+        var reportedError: Throwable? = null
+        var scanStarts = 0
+
+        val operation = scanQrImageFromUri(
+            context = context,
+            uri = uri,
+            callbacks = QrImageScanCallbacks(
+                onScanSuccess = {},
+                onNoQrCode = {},
+                onError = { reportedError = it },
+            ),
+            imageLoader = { _, _ -> throw loadError },
+            scanStarter = { _, _, _, _, _ ->
+                scanStarts++
+                mock()
+            },
+        )
+
+        assertNull(operation)
+        assertSame(loadError, reportedError)
+        assertEquals(0, scanStarts)
+    }
+
+    @Test
+    fun `successful uri loading starts and returns image scan operation`() {
+        val context: Context = mock()
+        val uri: Uri = mock()
+        val expectedOperation: QrImageScanOperation = mock()
+        var loadedImage: InputImage? = null
+
+        val operation = scanQrImageFromUri(
+            context = context,
+            uri = uri,
+            callbacks = QrImageScanCallbacks(
+                onScanSuccess = {},
+                onNoQrCode = {},
+                onError = {},
+            ),
+            imageLoader = { _, _ -> image },
+            scanStarter = { _, scanImage, _, _, _ ->
+                loadedImage = scanImage
+                expectedOperation
+            },
+        )
+
+        assertSame(expectedOperation, operation)
+        assertSame(image, loadedImage)
+    }
 
     @Test
     fun `close before availability suppresses processing and callbacks`() {

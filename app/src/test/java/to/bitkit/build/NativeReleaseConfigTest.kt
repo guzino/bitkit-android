@@ -148,10 +148,11 @@ class NativeReleaseConfigTest {
         )
         assertTrue(
             symbolsScript.contains(
-                """required_libs="libbitkitcore.so libldk_node.so libvss_rust_client_ffi.so"""",
+                """dependency_required_libs="libbitkitcore.so libldk_node.so libvss_rust_client_ffi.so"""",
             ),
-            "Native debug symbols script must validate release-critical native libraries.",
+            "Native debug symbols script must merge release-critical dependency symbols.",
         )
+        assertApplicationSymbolsAreMerged(symbolsScript)
         assertTrue(
             symbolsScript.contains("""archive_symbol_suffixes=".dbg .sym""""),
             "Native debug symbols script must accept AGP native debug symbol entry suffixes.",
@@ -203,6 +204,22 @@ class NativeReleaseConfigTest {
             symbolsScript.contains("copy_archive_symbols") &&
                 symbolsScript.contains("""mv "${'$'}tmp_dir/${'$'}entry" "${'$'}tmp_dir/${'$'}abi/${'$'}lib_name""""),
             "Native debug symbols script must normalize suffixed dependency archive entries before validation.",
+        )
+    }
+
+    private fun assertApplicationSymbolsAreMerged(symbolsScript: String) {
+        val applicationRequiredLibraries =
+            "application_required_libs=\"libimage_processing_util_jni.so " +
+                "libsurface_util_jni.so libandroidx.graphics.path.so\""
+        assertTrue(
+            symbolsScript.contains(applicationRequiredLibraries),
+            "Native debug symbols script must preserve symbols for rebuilt application libraries.",
+        )
+        assertTrue(
+            symbolsScript.contains(
+                """copy_archive_symbols "${'$'}output" "${'$'}tmp_dir" "${'$'}application_required_libs"""",
+            ),
+            "Native debug symbols script must merge the AGP archive before replacing it.",
         )
     }
 }
