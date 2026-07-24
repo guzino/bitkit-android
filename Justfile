@@ -178,6 +178,7 @@ release:
     symbols_dir="app/build/outputs/native-debug-symbols/mainnetRelease"
     rm -f "$symbols_dir"/native-debug-symbols*.zip
     NDK_VERSION={{ ndk_ver }} {{ gradle }} assembleMainnetRelease bundleMainnetRelease
+    scripts/check-16kb-compat.sh app/build/outputs/apk/mainnet/release app/build/outputs/bundle/mainnetRelease
     NDK_VERSION={{ ndk_ver }} {{ gradle }} :app:syncNativeDebugSymbolArtifacts
     scripts/create-native-debug-symbols.sh
     symbols="$(find "$symbols_dir" -maxdepth 1 -name 'native-debug-symbols-*.zip' -type f | sort | tail -n 1)"

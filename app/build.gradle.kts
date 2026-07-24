@@ -164,7 +164,7 @@ val bitkitAndroidTestAnnotation = bitkitAndroidTestAnnotationName?.let {
 android {
     namespace = "to.bitkit"
     compileSdk = 36
-    requestedNdkVersion?.let { ndkVersion = it }
+    ndkVersion = requestedNdkVersion ?: "28.1.13356709"
     defaultConfig {
         applicationId = "to.bitkit"
         minSdk = 28
@@ -177,6 +177,11 @@ android {
         }
         vectorDrawables {
             useSupportLibrary = true
+        }
+        externalNativeBuild {
+            ndkBuild {
+                arguments += "APP_STL=c++_static"
+            }
         }
         buildConfigField("boolean", "E2E", System.getenv("E2E")?.toBoolean()?.toString() ?: "false")
         buildConfigField("String", "E2E_BACKEND", "\"$e2eBackendEnv\"")
@@ -281,9 +286,21 @@ android {
         generateLocaleConfig = true
     }
     packaging {
+        jniLibs {
+            pickFirsts += setOf(
+                "**/libandroidx.graphics.path.so",
+                "**/libimage_processing_util_jni.so",
+                "**/libsurface_util_jni.so",
+            )
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
         }
     }
     splits {
@@ -437,6 +454,7 @@ dependencies {
     // Glance - AppWidgets
     implementation(libs.glance.appwidget)
     implementation(libs.glance.material3)
+    implementation(libs.graphics.path)
     // Ktor - Networking
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)

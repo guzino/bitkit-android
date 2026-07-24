@@ -53,6 +53,9 @@ jobs:
           CHATWOOT_API: ${{ secrets.CHATWOOT_API }}
         run: ./gradlew assembleDevDebug
 
+      - name: Verify 16 KB native compatibility
+        run: scripts/check-16kb-compat.sh app/build/outputs/apk/dev/debug
+
       - name: Run tests
         run: ./gradlew testDevDebugUnitTest
 

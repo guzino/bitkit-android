@@ -62,6 +62,10 @@
         android:roundIcon="${app_icon_round}"
         android:supportsRtl="true"
         android:theme="@style/Theme.App">
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode" />
+
         <service
             android:name=".androidServices.LightningNodeService"
             android:foregroundServiceType="dataSync"

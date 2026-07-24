@@ -79,6 +79,9 @@ jobs:
           ./gradlew :app:syncNativeDebugSymbolArtifacts --no-daemon --stacktrace
           scripts/create-native-debug-symbols.sh
 
+      - name: Verify 16 KB native compatibility
+        run: scripts/check-16kb-compat.sh app/build/outputs/apk/mainnet/release
+
       - name: Verify native libraries are stripped
         run: |
           set -euo pipefail
