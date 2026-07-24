@@ -38,9 +38,12 @@ class QrCodeAnalyzer(
         lastScanTime = 0
     }
 
-    fun retryModelInstallation() {
-        isScannerReady = false
-        modelInstaller.retry()
+    fun retryModelInstallation(): Boolean {
+        val retryStarted = modelInstaller.retry()
+        if (retryStarted) {
+            isScannerReady = false
+        }
+        return retryStarted
     }
 
     override fun analyze(image: ImageProxy) {

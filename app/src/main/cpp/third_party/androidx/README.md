@@ -18,4 +18,4 @@ The CameraX image-processing target uses the required source subset from libyuv
 commit `ddc6764d1392fb2e3ff5752b12c73786a989473e`. The portable C kernels provide
 consistent behavior across Bitkit's packaged ABIs. The libyuv files retain
 their BSD license headers, with `LICENSE` and `PATENTS` stored alongside the
-source.
+source and included in application assets at `third_party/libyuv/`.

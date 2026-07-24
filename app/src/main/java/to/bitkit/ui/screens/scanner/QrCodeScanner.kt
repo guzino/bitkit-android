@@ -17,6 +17,11 @@ import java.util.concurrent.Executor
 internal class BarcodeModelUnavailableException(cause: Throwable? = null) :
     Exception("The QR scanner model is unavailable", cause)
 
+internal fun retryQrModelIfUnavailable(
+    isUnavailable: Boolean,
+    retry: () -> Boolean,
+): Boolean = isUnavailable && !retry()
+
 internal class BarcodeModelInstaller(
     private val scanner: BarcodeScanner,
     private val moduleInstallClient: ModuleInstallClient,
@@ -31,18 +36,14 @@ internal class BarcodeModelInstaller(
     private var attemptId = 0L
     private var installStatusListener: InstallStatusListener? = null
 
-    fun start() {
-        startAttempt()
-    }
+    fun start(): Boolean = startAttempt()
 
-    fun retry() {
-        startAttempt()
-    }
+    fun retry(): Boolean = startAttempt()
 
-    private fun startAttempt() {
+    private fun startAttempt(): Boolean {
         val currentAttemptId = synchronized(stateLock) {
             if (closed || ready || attemptActive) {
-                return
+                return false
             }
             attemptActive = true
             ++attemptId
@@ -61,6 +62,8 @@ internal class BarcodeModelInstaller(
                 }
             }
             .addOnFailureListener(callbackExecutor) { finishError(currentAttemptId, it) }
+
+        return true
     }
 
     private fun install(currentAttemptId: Long) {
@@ -160,28 +163,125 @@ internal fun scanQrImage(
     onScanSuccess: (String) -> Unit,
     onNoQrCode: () -> Unit,
     onError: (Throwable) -> Unit,
-) {
-    val scanner = createQrScanner()
-    BarcodeModelInstaller(
+) = QrImageScanOperation(
+    scanner = createQrScanner(),
+    moduleInstallClient = ModuleInstall.getClient(context),
+    image = image,
+    callbacks = QrImageScanCallbacks(
+        onScanSuccess = onScanSuccess,
+        onNoQrCode = onNoQrCode,
+        onError = onError,
+    ),
+    callbackExecutor = ContextCompat.getMainExecutor(context),
+).also { it.start() }
+
+internal class QrImageScanCallbacks(
+    val onScanSuccess: (String) -> Unit,
+    val onNoQrCode: () -> Unit,
+    val onError: (Throwable) -> Unit,
+)
+
+internal class QrImageScanOperation(
+    private val scanner: BarcodeScanner,
+    moduleInstallClient: ModuleInstallClient,
+    private val image: InputImage,
+    private val callbacks: QrImageScanCallbacks,
+    private val callbackExecutor: Executor = Executor { it.run() },
+) : AutoCloseable {
+    private val stateLock = Any()
+    private var closed = false
+    private var processing = false
+    private var completed = false
+    private val modelInstaller = BarcodeModelInstaller(
         scanner = scanner,
-        moduleInstallClient = ModuleInstall.getClient(context),
-        onReady = {
-            scanner.process(image)
-                .addOnSuccessListener { barcodes ->
-                    val qrCode = barcodes.firstNotNullOfOrNull { it.rawValue }
+        moduleInstallClient = moduleInstallClient,
+        onReady = ::processImage,
+        onError = ::reportModelError,
+        callbackExecutor = callbackExecutor,
+    )
+
+    fun start(): Boolean = modelInstaller.start()
+
+    fun retryModelInstallation(): Boolean {
+        synchronized(stateLock) {
+            if (closed || completed || processing) {
+                return false
+            }
+        }
+        return modelInstaller.retry()
+    }
+
+    private fun processImage() {
+        val shouldProcess = synchronized(stateLock) {
+            if (closed || completed || processing) {
+                false
+            } else {
+                processing = true
+                true
+            }
+        }
+        if (!shouldProcess) {
+            return
+        }
+
+        scanner.process(image)
+            .addOnSuccessListener(callbackExecutor) { barcodes ->
+                val qrCode = barcodes.firstNotNullOfOrNull { it.rawValue }
+                finish {
                     if (qrCode == null) {
-                        onNoQrCode()
+                        callbacks.onNoQrCode()
                     } else {
-                        onScanSuccess(qrCode)
+                        callbacks.onScanSuccess(qrCode)
                     }
                 }
-                .addOnFailureListener(onError)
-                .addOnCompleteListener { scanner.close() }
-        },
-        onError = {
-            scanner.close()
-            onError(it)
-        },
-        callbackExecutor = ContextCompat.getMainExecutor(context),
-    ).start()
+            }
+            .addOnFailureListener(callbackExecutor) { error ->
+                finish { callbacks.onError(error) }
+            }
+    }
+
+    private fun reportModelError(error: Throwable) {
+        val shouldReport = synchronized(stateLock) {
+            !closed && !completed && !processing
+        }
+        if (shouldReport) {
+            callbacks.onError(error)
+        }
+    }
+
+    private fun finish(callback: () -> Unit) {
+        val shouldFinish = synchronized(stateLock) {
+            if (closed || completed) {
+                false
+            } else {
+                completed = true
+                true
+            }
+        }
+        if (!shouldFinish) {
+            return
+        }
+
+        try {
+            callback()
+        } finally {
+            close()
+        }
+    }
+
+    override fun close() {
+        val shouldClose = synchronized(stateLock) {
+            if (closed) {
+                false
+            } else {
+                closed = true
+                true
+            }
+        }
+        if (!shouldClose) {
+            return
+        }
+        modelInstaller.close()
+        scanner.close()
+    }
 }

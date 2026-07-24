@@ -25,22 +25,47 @@ class NativeReleaseConfigTest {
     }
 
     @Test
-    fun `androidx license is packaged with application assets`() {
+    fun `vendored native licenses are packaged with application assets`() {
         val buildFile = repoRoot.resolve("app/build.gradle.kts").readText()
-        val licenseFile = repoRoot.resolve("app/src/main/cpp/third_party/androidx/LICENSE")
+        val androidxLicense = repoRoot.resolve("app/src/main/cpp/third_party/androidx/LICENSE")
+        val libyuvLicense = repoRoot.resolve("app/src/main/cpp/third_party/libyuv/LICENSE")
+        val libyuvPatents = repoRoot.resolve("app/src/main/cpp/third_party/libyuv/PATENTS")
+        val generatedLicenses = repoRoot.resolve("app/build/generated/third-party-licenses/third_party")
+        val generatedAndroidxLicense = generatedLicenses.resolve("androidx/LICENSE")
+        val generatedLibyuvLicense = generatedLicenses.resolve("libyuv/LICENSE")
+        val generatedLibyuvPatents = generatedLicenses.resolve("libyuv/PATENTS")
 
-        assertTrue(licenseFile.exists(), "The vendored AndroidX source must include its Apache 2.0 license.")
-        val licenseText = licenseFile.readText()
+        assertTrue(androidxLicense.exists(), "The vendored AndroidX source must include its Apache 2.0 license.")
+        val licenseText = androidxLicense.readText()
         assertTrue(
             licenseText.contains("Apache License") &&
                 licenseText.contains("Version 2.0, January 2004"),
             "The vendored AndroidX license must contain the complete Apache 2.0 license text.",
         )
         assertTrue(
+            libyuvLicense.exists() && libyuvPatents.exists(),
+            "The statically linked libyuv source must include its BSD notice and patent grant.",
+        )
+        assertTrue(
             buildFile.contains("packageThirdPartyLicenses") &&
                 buildFile.contains("""into("third_party/androidx")""") &&
+                buildFile.contains("""into("third_party/libyuv")""") &&
+                buildFile.contains("src/main/cpp/third_party/libyuv/LICENSE") &&
+                buildFile.contains("src/main/cpp/third_party/libyuv/PATENTS") &&
                 buildFile.contains("dependsOn(packageThirdPartyLicenses)"),
-            "Android builds must package the vendored AndroidX license as an application asset.",
+            "Android builds must package the AndroidX and libyuv notices as application assets.",
+        )
+        assertTrue(
+            generatedAndroidxLicense.exists() &&
+                generatedAndroidxLicense.readText() == androidxLicense.readText(),
+            "The generated AndroidX application asset must be byte-equivalent to its tracked license.",
+        )
+        assertTrue(
+            generatedLibyuvLicense.exists() &&
+                generatedLibyuvLicense.readText() == libyuvLicense.readText() &&
+                generatedLibyuvPatents.exists() &&
+                generatedLibyuvPatents.readText() == libyuvPatents.readText(),
+            "The generated libyuv application assets must be byte-equivalent to their tracked notices.",
         )
     }
 

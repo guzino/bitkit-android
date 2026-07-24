@@ -164,6 +164,14 @@ val packageThirdPartyLicenses by tasks.registering(Sync::class) {
     from("src/main/cpp/third_party/androidx/LICENSE") {
         into("third_party/androidx")
     }
+    from(
+        listOf(
+            "src/main/cpp/third_party/libyuv/LICENSE",
+            "src/main/cpp/third_party/libyuv/PATENTS",
+        ),
+    ) {
+        into("third_party/libyuv")
+    }
     into(layout.buildDirectory.dir("generated/third-party-licenses"))
 }
 

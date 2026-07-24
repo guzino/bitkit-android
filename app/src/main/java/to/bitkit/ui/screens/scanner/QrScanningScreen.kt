@@ -118,18 +118,20 @@ fun QrScanningScreen(
     val context = LocalContext.current
     val previewView = remember { PreviewView(context) }
     val preview = remember { Preview.Builder().build() }
-    var isQrModelUnavailable by remember { mutableStateOf(false) }
+    var isCameraQrModelUnavailable by remember { mutableStateOf(false) }
+    var isGalleryQrModelUnavailable by remember { mutableStateOf(false) }
+    var galleryScanOperation by remember { mutableStateOf<QrImageScanOperation?>(null) }
     val analyzer = remember {
         QrCodeAnalyzer(context) { result ->
             if (result.isSuccess) {
-                isQrModelUnavailable = false
+                isCameraQrModelUnavailable = false
                 val qrCode = result.getOrThrow()
                 Logger.debug("Scanned QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
                 setScanResult(qrCode)
             } else {
                 val error = requireNotNull(result.exceptionOrNull())
                 if (error is BarcodeModelUnavailableException) {
-                    isQrModelUnavailable = true
+                    isCameraQrModelUnavailable = true
                 }
                 Logger.error("Failed to scan QR code", error)
                 app.toastQrScanError(context, error)
@@ -143,15 +145,25 @@ fun QrScanningScreen(
     }
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
 
+    val handleGalleryScanSuccess = { qrCode: String ->
+        isGalleryQrModelUnavailable = false
+        setScanResult(qrCode)
+    }
+    val handleGalleryError = { error: Throwable ->
+        isGalleryQrModelUnavailable = error is BarcodeModelUnavailableException
+        app.toastQrScanError(context, error)
+    }
+
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
             uri?.let {
-                processImageFromGallery(
+                galleryScanOperation?.close()
+                galleryScanOperation = processImageFromGallery(
                     context,
                     it,
-                    setScanResult,
-                    onError = { e -> app.toastQrScanError(context, e) },
+                    handleGalleryScanSuccess,
+                    onError = handleGalleryError,
                 )
             }
         }
@@ -159,11 +171,12 @@ fun QrScanningScreen(
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let {
-            processImageFromGallery(
+            galleryScanOperation?.close()
+            galleryScanOperation = processImageFromGallery(
                 context,
                 it,
-                setScanResult,
-                onError = { e -> app.toastQrScanError(context, e) },
+                handleGalleryScanSuccess,
+                onError = handleGalleryError,
             )
         }
     }
@@ -194,6 +207,7 @@ fun QrScanningScreen(
         onDispose {
             imageAnalysis.clearAnalyzer()
             analyzer.close()
+            galleryScanOperation?.close()
             analyzerExecutor.shutdown()
             camera?.let {
                 ProcessCameraProvider.getInstance(context).get().unbindAll()
@@ -232,10 +246,16 @@ fun QrScanningScreen(
                     },
                     onPasteFromClipboard = handlePaste(context, app, setScanResult),
                     onSubmitDebug = setScanResult,
-                    isQrModelUnavailable = isQrModelUnavailable,
+                    isQrModelUnavailable = isCameraQrModelUnavailable || isGalleryQrModelUnavailable,
                     onRetryQrModel = {
-                        isQrModelUnavailable = false
-                        analyzer.retryModelInstallation()
+                        isGalleryQrModelUnavailable = retryQrModelIfUnavailable(
+                            isUnavailable = isGalleryQrModelUnavailable,
+                            retry = { galleryScanOperation?.retryModelInstallation() == true },
+                        )
+                        isCameraQrModelUnavailable = retryQrModelIfUnavailable(
+                            isUnavailable = isCameraQrModelUnavailable,
+                            retry = analyzer::retryModelInstallation,
+                        )
                     },
                 )
             }
@@ -387,8 +407,8 @@ private fun processImageFromGallery(
     uri: Uri,
     onScanSuccess: (String) -> Unit,
     onError: (Throwable) -> Unit,
-) {
-    runCatching {
+): QrImageScanOperation? =
+    try {
         val image = InputImage.fromFilePath(context, uri)
         scanQrImage(
             context = context,
@@ -406,11 +426,11 @@ private fun processImageFromGallery(
                 onError(e)
             },
         )
-    }.onFailure {
-        Logger.error("Failed to process image from gallery", it, context = TAG)
-        onError(it)
+    } catch (error: IllegalArgumentException) {
+        Logger.error("Failed to process image from gallery", error, context = TAG)
+        onError(error)
+        null
     }
-}
 
 private fun AppViewModel.toastQrScanError(context: Context, error: Throwable) {
     if (error is BarcodeModelUnavailableException) {

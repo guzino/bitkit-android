@@ -16,7 +16,9 @@ import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class BarcodeModelInstallerTest {
     private val scanner: BarcodeScanner = mock()
@@ -34,15 +36,38 @@ class BarcodeModelInstallerTest {
         )
         var readyCalls = 0
 
-        BarcodeModelInstaller(
+        val installer = BarcodeModelInstaller(
             scanner = scanner,
             moduleInstallClient = moduleInstallClient,
             onReady = { readyCalls++ },
             onError = {},
-        ).start()
+        )
 
+        assertTrue(installer.start())
         assertEquals(1, readyCalls)
+        assertFalse(installer.retry())
         verify(moduleInstallClient, never()).installModules(org.mockito.kotlin.any())
+        verify(moduleInstallClient, times(1)).areModulesAvailable(scanner)
+    }
+
+    @Test
+    fun `retry state remains independent for ready and failed scanner owners`() {
+        var cameraRetryCalls = 0
+        var galleryRetryCalls = 0
+
+        val cameraUnavailable = retryQrModelIfUnavailable(isUnavailable = false) {
+            cameraRetryCalls++
+            false
+        }
+        val galleryUnavailable = retryQrModelIfUnavailable(isUnavailable = true) {
+            galleryRetryCalls++
+            true
+        }
+
+        assertFalse(cameraUnavailable)
+        assertEquals(0, cameraRetryCalls)
+        assertFalse(galleryUnavailable)
+        assertEquals(1, galleryRetryCalls)
     }
 
     @Test
