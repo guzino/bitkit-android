@@ -26,11 +26,16 @@ internal class BarcodeModelInstaller(
     private val callbackExecutor: Executor = Executor { it.run() },
 ) : AutoCloseable {
     private val finished = AtomicBoolean()
+    private val listenerLock = Any()
     private var installStatusListener: InstallStatusListener? = null
 
     fun start() {
         moduleInstallClient.areModulesAvailable(scanner)
             .addOnSuccessListener(callbackExecutor) { availability ->
+                if (finished.get()) {
+                    return@addOnSuccessListener
+                }
+
                 if (availability.areModulesAvailable()) {
                     finishReady()
                 } else {
@@ -49,14 +54,21 @@ internal class BarcodeModelInstaller(
                 -> finishError(BarcodeModelUnavailableException())
             }
         }
-        installStatusListener = listener
 
         val request = ModuleInstallRequest.newBuilder()
             .addApi(scanner)
             .setListener(listener, callbackExecutor)
             .build()
 
-        moduleInstallClient.installModules(request)
+        val installTask = synchronized(listenerLock) {
+            if (finished.get()) {
+                return
+            }
+            installStatusListener = listener
+            moduleInstallClient.installModules(request)
+        }
+
+        installTask
             .addOnSuccessListener(callbackExecutor) { response ->
                 if (response.areModulesAlreadyInstalled()) {
                     finishReady()
@@ -86,8 +98,10 @@ internal class BarcodeModelInstaller(
     }
 
     private fun unregisterListener() {
-        installStatusListener?.let(moduleInstallClient::unregisterListener)
-        installStatusListener = null
+        val listener = synchronized(listenerLock) {
+            installStatusListener.also { installStatusListener = null }
+        }
+        listener?.let(moduleInstallClient::unregisterListener)
     }
 
     override fun close() {

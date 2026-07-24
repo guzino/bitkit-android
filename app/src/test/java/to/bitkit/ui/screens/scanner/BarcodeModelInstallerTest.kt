@@ -5,12 +5,14 @@ import com.google.android.gms.common.moduleinstall.ModuleInstallClient
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.android.gms.common.moduleinstall.ModuleInstallResponse
 import com.google.android.gms.common.moduleinstall.ModuleInstallStatusUpdate
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import org.junit.Test
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import kotlin.test.assertEquals
@@ -105,5 +107,58 @@ class BarcodeModelInstallerTest {
         ).start()
 
         assertIs<BarcodeModelUnavailableException>(error)
+    }
+
+    @Test
+    fun `does not start module installation after close`() {
+        val availability = TaskCompletionSource<ModuleAvailabilityResponse>()
+        whenever(moduleInstallClient.areModulesAvailable(scanner)).thenReturn(availability.task)
+        val installer = BarcodeModelInstaller(
+            scanner = scanner,
+            moduleInstallClient = moduleInstallClient,
+            onReady = {},
+            onError = {},
+        )
+
+        installer.start()
+        installer.close()
+        availability.setResult(
+            ModuleAvailabilityResponse(
+                false,
+                ModuleAvailabilityResponse.AvailabilityStatus.STATUS_READY_TO_DOWNLOAD,
+            )
+        )
+
+        verify(moduleInstallClient, never()).installModules(org.mockito.kotlin.any())
+    }
+
+    @Test
+    fun `close unregisters an active installation listener once`() {
+        whenever(moduleInstallClient.areModulesAvailable(scanner)).thenReturn(
+            Tasks.forResult(
+                ModuleAvailabilityResponse(
+                    false,
+                    ModuleAvailabilityResponse.AvailabilityStatus.STATUS_READY_TO_DOWNLOAD,
+                )
+            )
+        )
+        val installation = TaskCompletionSource<ModuleInstallResponse>()
+        whenever(moduleInstallClient.installModules(org.mockito.kotlin.any())).thenReturn(installation.task)
+        val installer = BarcodeModelInstaller(
+            scanner = scanner,
+            moduleInstallClient = moduleInstallClient,
+            onReady = {},
+            onError = {},
+        )
+
+        installer.start()
+        val request = argumentCaptor<ModuleInstallRequest>().apply {
+            verify(moduleInstallClient).installModules(capture())
+        }.firstValue
+        val listener = requireNotNull(request.listener)
+        installer.close()
+        installer.close()
+
+        verify(moduleInstallClient, times(1)).unregisterListener(listener)
     }
 }
