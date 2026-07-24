@@ -22,7 +22,7 @@ find_readelf() {
         [[ -n "${ndk_dir}" && -d "${ndk_dir}/toolchains/llvm/prebuilt" ]] || continue
         readelf="$(
             find "${ndk_dir}/toolchains/llvm/prebuilt" \
-                -type f \
+                \( -type f -o -type l \) \
                 -path '*/bin/llvm-readelf' \
                 -perm -111 \
                 -print \
@@ -39,7 +39,7 @@ find_readelf() {
         [[ -n "${sdk_dir}" && -d "${sdk_dir}/ndk" ]] || continue
         readelf="$(
             find "${sdk_dir}/ndk" \
-                -type f \
+                \( -type f -o -type l \) \
                 -path '*/toolchains/llvm/prebuilt/*/bin/llvm-readelf' \
                 -perm -111 \
                 -print \
@@ -106,14 +106,14 @@ configure_bundletool() {
         return
     fi
 
-    if command -v bundletool >/dev/null 2>&1; then
-        BUNDLETOOL_COMMAND=("$(command -v bundletool)")
-        return
-    fi
-
     if [[ -n "${BUNDLETOOL_JAR:-}" && -f "${BUNDLETOOL_JAR}" ]]; then
         command -v java >/dev/null 2>&1 || fail "java is required to run BUNDLETOOL_JAR"
         BUNDLETOOL_COMMAND=("$(command -v java)" -jar "${BUNDLETOOL_JAR}")
+        return
+    fi
+
+    if command -v bundletool >/dev/null 2>&1; then
+        BUNDLETOOL_COMMAND=("$(command -v bundletool)")
         return
     fi
 
