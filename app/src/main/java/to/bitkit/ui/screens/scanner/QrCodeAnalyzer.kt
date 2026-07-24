@@ -1,29 +1,37 @@
 package to.bitkit.ui.screens.scanner
 
+import android.content.Context
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.core.content.ContextCompat
+import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import to.bitkit.utils.AppError
 import to.bitkit.utils.Logger
 
 @OptIn(ExperimentalGetImage::class)
 class QrCodeAnalyzer(
+    context: Context,
     private val onScanResult: (Result<String>) -> Unit,
-) : ImageAnalysis.Analyzer {
+) : ImageAnalysis.Analyzer, AutoCloseable {
     private var lastScannedCode: String? = null
     private var lastScanTime: Long = 0
     private val scanCooldownMs = 2000L // 2 seconds cooldown between scans
 
-    private val scannerOptions = BarcodeScannerOptions.Builder()
-        .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-        .build()
-    private val scanner: BarcodeScanner = BarcodeScanning.getClient(scannerOptions)
+    @Volatile
+    private var isScannerReady = false
+
+    private val scanner: BarcodeScanner = createQrScanner()
+    private val modelInstaller = BarcodeModelInstaller(
+        scanner = scanner,
+        moduleInstallClient = ModuleInstall.getClient(context.applicationContext),
+        onReady = { isScannerReady = true },
+        onError = { onScanResult(Result.failure(it)) },
+        callbackExecutor = ContextCompat.getMainExecutor(context),
+    ).also { it.start() }
 
     fun reset() {
         lastScannedCode = null
@@ -31,6 +39,11 @@ class QrCodeAnalyzer(
     }
 
     override fun analyze(image: ImageProxy) {
+        if (!isScannerReady) {
+            image.close()
+            return
+        }
+
         if (image.image != null) {
             val inputImage = InputImage.fromMediaImage(image.image!!, image.imageInfo.rotationDegrees)
             scanner.process(inputImage)
@@ -63,5 +76,10 @@ class QrCodeAnalyzer(
         } else {
             image.close()
         }
+    }
+
+    override fun close() {
+        modelInstaller.close()
+        scanner.close()
     }
 }

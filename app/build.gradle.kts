@@ -393,6 +393,7 @@ dependencies {
     implementation(libs.biometric)
     implementation(libs.zxing)
     implementation(libs.barcode.scanning)
+    implementation(libs.play.services.base)
     // CameraX
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)

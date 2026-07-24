@@ -51,9 +51,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -121,7 +118,7 @@ fun QrScanningScreen(
     val previewView = remember { PreviewView(context) }
     val preview = remember { Preview.Builder().build() }
     val analyzer = remember {
-        QrCodeAnalyzer { result ->
+        QrCodeAnalyzer(context) { result ->
             if (result.isSuccess) {
                 val qrCode = result.getOrThrow()
                 Logger.debug("Scanned QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
@@ -129,11 +126,7 @@ fun QrScanningScreen(
             } else {
                 val error = requireNotNull(result.exceptionOrNull())
                 Logger.error("Failed to scan QR code", error)
-                app.toast(
-                    type = Toast.ToastType.ERROR,
-                    title = context.getString(R.string.other__qr_error_header),
-                    description = context.getString(R.string.other__qr_error_text),
-                )
+                app.toastQrScanError(context, error)
             }
         }
     }
@@ -142,20 +135,35 @@ fun QrScanningScreen(
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
     }
+    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri ->
-            uri?.let { processImageFromGallery(context, it, setScanResult, onError = { e -> app.toast(e) }) }
+            uri?.let {
+                processImageFromGallery(
+                    context,
+                    it,
+                    setScanResult,
+                    onError = { e -> app.toastQrScanError(context, e) },
+                )
+            }
         }
     )
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let { processImageFromGallery(context, it, setScanResult, onError = { e -> app.toast(e) }) }
+        uri?.let {
+            processImageFromGallery(
+                context,
+                it,
+                setScanResult,
+                onError = { e -> app.toastQrScanError(context, e) },
+            )
+        }
     }
 
     LaunchedEffect(lensFacing) {
-        imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
+        imageAnalysis.setAnalyzer(analyzerExecutor, analyzer)
     }
 
     val cameraSelector = remember(lensFacing) {
@@ -174,6 +182,9 @@ fun QrScanningScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
+            imageAnalysis.clearAnalyzer()
+            analyzer.close()
+            analyzerExecutor.shutdown()
             camera?.let {
                 ProcessCameraProvider.getInstance(context).get().unbindAll()
             }
@@ -350,29 +361,36 @@ private fun processImageFromGallery(
 ) {
     runCatching {
         val image = InputImage.fromFilePath(context, uri)
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        val scanner = BarcodeScanning.getClient(options)
-
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    barcode.rawValue?.let { qrCode ->
-                        onScanSuccess(qrCode)
-                        Logger.info("Found QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
-                        return@addOnSuccessListener
-                    }
-                }
+        scanQrImage(
+            context = context,
+            image = image,
+            onScanSuccess = { qrCode ->
+                onScanSuccess(qrCode)
+                Logger.info("Found QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
+            },
+            onNoQrCode = {
                 Logger.error("No QR code found in the image")
                 onError(Exception("No QR code found in the image"))
-            }
-            .addOnFailureListener { e ->
+            },
+            onError = { e ->
                 Logger.error("Failed to scan QR code from gallery", e)
                 onError(e)
-            }
+            },
+        )
     }.onFailure {
         Logger.error("Failed to process image from gallery", it, context = TAG)
         onError(it)
+    }
+}
+
+private fun AppViewModel.toastQrScanError(context: Context, error: Throwable) {
+    if (error is BarcodeModelUnavailableException) {
+        toast(
+            type = Toast.ToastType.ERROR,
+            title = context.getString(R.string.other__qr_model_unavailable_header),
+            description = context.getString(R.string.other__qr_model_unavailable_text),
+        )
+    } else {
+        toast(error)
     }
 }

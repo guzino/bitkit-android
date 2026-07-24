@@ -524,6 +524,8 @@
     <string name="other__qr_error_network_header">Incorrect Network</string>
     <string name="other__qr_error_network_text">Bitkit is currently set to {selectedNetwork} but data is for {dataNetwork}.</string>
     <string name="other__qr_error_text">Bitkit is not able to read this QR code.</string>
+    <string name="other__qr_model_unavailable_header">QR Scanner Unavailable</string>
+    <string name="other__qr_model_unavailable_text">Connect to the internet, update Google Play services, and try again while the QR scanner finishes installing.</string>
     <string name="other__qr_paste">Paste QR Code</string>
     <string name="other__qr_scan">Scan QR Code</string>
     <string name="other__scan__error__expired">This Lightning invoice has expired.</string>

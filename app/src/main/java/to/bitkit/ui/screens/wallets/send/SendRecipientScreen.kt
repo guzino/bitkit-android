@@ -50,9 +50,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -70,8 +67,10 @@ import to.bitkit.ui.components.PrimaryButton
 import to.bitkit.ui.components.RectangleButton
 import to.bitkit.ui.components.VerticalSpacer
 import to.bitkit.ui.scaffold.SheetTopBar
+import to.bitkit.ui.screens.scanner.BarcodeModelUnavailableException
 import to.bitkit.ui.screens.scanner.CameraOverlayButtonSize
 import to.bitkit.ui.screens.scanner.QrCodeAnalyzer
+import to.bitkit.ui.screens.scanner.scanQrImage
 import to.bitkit.ui.shared.modifiers.sheetHeight
 import to.bitkit.ui.shared.util.gradientBackground
 import to.bitkit.ui.theme.AppThemeSurface
@@ -81,6 +80,7 @@ import to.bitkit.ui.theme.TRANSITION_SCREEN_MS
 import to.bitkit.ui.utils.withAccent
 import to.bitkit.utils.AppError
 import to.bitkit.utils.Logger
+import to.bitkit.viewmodels.AppViewModel
 import to.bitkit.viewmodels.SendEvent
 import java.util.concurrent.Executors
 import kotlin.coroutines.cancellation.CancellationException
@@ -134,7 +134,7 @@ fun SendRecipientScreen(
 
     // QR code analyzer with auto-proceed callback
     val analyzer = remember(onEvent) {
-        QrCodeAnalyzer { result ->
+        QrCodeAnalyzer(context) { result ->
             if (result.isSuccess) {
                 val qrCode = result.getOrThrow()
                 Logger.debug("Scanned QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
@@ -142,11 +142,7 @@ fun SendRecipientScreen(
             } else {
                 val error = requireNotNull(result.exceptionOrNull())
                 Logger.error("Scan failed", error, context = TAG)
-                app?.toast(
-                    type = Toast.ToastType.ERROR,
-                    title = context.getString(R.string.other__qr_error_header),
-                    description = context.getString(R.string.other__qr_error_text),
-                )
+                app.toastQrScanError(context, error)
             }
         }
     }
@@ -200,6 +196,8 @@ fun SendRecipientScreen(
             }
             // Reset state - camera will reinit if needed on next composition
             isCameraInitialized = false
+            imageAnalysis.clearAnalyzer()
+            analyzer.close()
             executor.shutdown()
         }
     }
@@ -210,7 +208,7 @@ fun SendRecipientScreen(
         onEvent(SendEvent.AddressContinue(qrCode))
     }
 
-    val handleGalleryError: (Throwable) -> Unit = { app?.toast(it) }
+    val handleGalleryError: (Throwable) -> Unit = { app.toastQrScanError(context, it) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -460,30 +458,37 @@ private fun processImageFromGallery(
 ) {
     try {
         val image = InputImage.fromFilePath(context, uri)
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        val scanner = BarcodeScanning.getClient(options)
-
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    barcode.rawValue?.let { qrCode ->
-                        onScanSuccess(qrCode)
-                        Logger.info("Found gallery QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
-                        return@addOnSuccessListener
-                    }
-                }
+        scanQrImage(
+            context = context,
+            image = image,
+            onScanSuccess = { qrCode ->
+                onScanSuccess(qrCode)
+                Logger.info("Found gallery QR code '${qrCode.sanitizedQrLogValue()}'", context = TAG)
+            },
+            onNoQrCode = {
                 Logger.error("No QR code in image", context = TAG)
                 onError(AppError(context.getString(R.string.other__qr_error_text)))
-            }
-            .addOnFailureListener {
+            },
+            onError = {
                 Logger.error("Gallery scan failed", it, context = TAG)
                 onError(it)
-            }
+            },
+        )
     } catch (e: IllegalArgumentException) {
         Logger.error("Gallery processing failed", e, context = TAG)
         onError(e)
+    }
+}
+
+private fun AppViewModel?.toastQrScanError(context: Context, error: Throwable) {
+    if (error is BarcodeModelUnavailableException) {
+        this?.toast(
+            type = Toast.ToastType.ERROR,
+            title = context.getString(R.string.other__qr_model_unavailable_header),
+            description = context.getString(R.string.other__qr_model_unavailable_text),
+        )
+    } else {
+        this?.toast(error)
     }
 }
 
