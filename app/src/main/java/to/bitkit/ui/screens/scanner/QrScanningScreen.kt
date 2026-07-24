@@ -50,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
@@ -173,7 +174,11 @@ fun QrScanningScreen(
     }
     var camera by remember { mutableStateOf<Camera?>(null) }
 
-    LaunchedEffect(lensFacing) {
+    LaunchedEffect(lensFacing, cameraPermissionState.status) {
+        if (!cameraPermissionState.status.isGranted) {
+            return@LaunchedEffect
+        }
+
         val cameraProvider = withContext(Dispatchers.IO) {
             ProcessCameraProvider.getInstance(context).get()
         }
