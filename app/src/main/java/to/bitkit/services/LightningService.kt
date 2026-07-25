@@ -91,10 +91,16 @@ class LightningService @Inject constructor(
         private const val TAG = "LightningService"
         private const val NODE_ID_PREVIEW_LEN = 20
 
-        /** LDK's default Electrum batch size for additional-wallet full scans. */
+        /**
+         * Preserves LDK's default Electrum batch size for account-0 wallets.
+         * Derived-account flows override this with their wider recovery policy.
+         */
         private const val ADDITIONAL_WALLET_FULL_SCAN_BATCH_SIZE = 5u
 
-        /** LDK's default Electrum stop gap for additional-wallet full scans. */
+        /**
+         * Preserves LDK's default Electrum stop gap for account-0 wallets.
+         * Derived-account flows override this with their wider recovery policy.
+         */
         private const val ADDITIONAL_WALLET_FULL_SCAN_STOP_GAP = 20u
 
         private const val SCORING_BASE_PENALTY_MSAT = 40_000uL
