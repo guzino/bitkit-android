@@ -104,12 +104,12 @@ class LightningService @Inject constructor(
     companion object {
         private const val TAG = "LightningService"
         private const val NODE_ID_PREVIEW_LEN = 20
-        private const val SCORING_BASE_PENALTY_MSAT = 50_000uL
+
+        private const val SCORING_BASE_PENALTY_MSAT = 40_000uL
         private const val SCORING_LIQUIDITY_PENALTY_MULTIPLIER_MSAT = 10_000uL
         private const val SCORING_LIQUIDITY_PENALTY_AMOUNT_MULTIPLIER_MSAT = 10_000uL
         private const val SCORING_HISTORICAL_LIQUIDITY_PENALTY_AMOUNT_MULTIPLIER_MSAT = 20_000uL
         private const val SCORING_CONSIDERED_IMPOSSIBLE_PENALTY_MSAT = 1_000_000_000_000uL
-        private const val SCORING_PROBING_DIVERSITY_PENALTY_MSAT = 60_000uL
 
         /** How long a node stop waits for the rust handle to be released before moving on. */
         private val NODE_RELEASE_TIMEOUT = 1.seconds
@@ -967,7 +967,6 @@ class LightningService @Inject constructor(
         historicalLiquidityPenaltyAmountMultiplierMsat =
         SCORING_HISTORICAL_LIQUIDITY_PENALTY_AMOUNT_MULTIPLIER_MSAT,
         consideredImpossiblePenaltyMsat = SCORING_CONSIDERED_IMPOSSIBLE_PENALTY_MSAT,
-        probingDiversityPenaltyMsat = SCORING_PROBING_DIVERSITY_PENALTY_MSAT,
     )
 
     // region utxo selection
